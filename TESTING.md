@@ -1,10 +1,8 @@
 # Testing & Validation Report
 
 **Workflow:** AI Units Quota Check  
-**Tested by:** jose.costa@dynatrace.com  
 **Test date:** 2026-09-23  
-**Environment:** Sprint/hardening (`sqd0899h.sprint.apps.dynatracelabs.com`)  
-**Account portal:** `myaccount-hardening.dynatracelabs.com`
+**Environment:** Internal sprint/hardening environment (non-production SaaS)
 
 ---
 
@@ -22,7 +20,7 @@ Since AI Units billing events are not yet available (feature is pre-GA), the DQL
 
 | Task | Temporary change |
 |---|---|
-| `check_for_ai_quota` | Replaced real DQL with `filter false` + hardcoded email inject |
+| `check_for_ai_quota` | Replaced real DQL with `filter false` + hardcoded test email inject |
 | `lock_out_users` | Replaced credential vault lookup with hardcoded `accountId` and OAuth secret |
 | `lock_out_users` | Removed predecessor condition to allow unconditional execution |
 
@@ -60,13 +58,7 @@ All changes were reverted before committing the production `workflow.yaml`.
 
 **Symptom:** OAuth token request returned `400 invalid_request` with empty error description.  
 **Cause:** The workflow uses `sso.dynatrace.com` and `api.dynatrace.com` (production SaaS defaults), which are unreachable from the hardening environment.  
-**Fix:** Swapped to hardening-specific URLs:
-
-```javascript
-const tokenUrl = 'https://sso-sprint.dynatracelabs.com/sso/oauth2/token';
-const baseUrl   = 'https://api-hardening.internal.dynatracelabs.com/';
-```
-
+**Fix:** Swapped `tokenUrl` and `baseUrl` to the internal environment equivalents of the SSO and Account Management API endpoints.  
 **Production impact:** None. The production `workflow.yaml` uses `sso.dynatrace.com` / `api.dynatrace.com`, which are correct for customer SaaS environments.
 
 ---
@@ -93,7 +85,7 @@ const baseUrl   = 'https://api-hardening.internal.dynatracelabs.com/';
 
 **Symptom:** First execution failed with `Could not run workflow task on behalf of '<uuid>'. Please ensure Authorization Settings are configured`.  
 **Cause:** The workflow Actor (service user) had not been configured in **Settings → Automations → Authorization settings**.  
-**Fix:** Changed the Actor to the deploying user (`jose.costa+094102092026@ruxitlabs.com`) who already had full authorization settings configured.  
+**Fix:** Changed the Actor to the deploying user, who already had full authorization settings configured.  
 **Production impact:** Documented in the README setup steps. The Actor must have Authorization Settings configured before the workflow can execute.
 
 ---
@@ -105,7 +97,7 @@ For the colleague deploying to production, verify the following before publishin
 - [ ] `event.type == "AI Units"` confirmed against production billing events (`fetch dt.system.events | filter event.kind == "BILLING_USAGE_EVENT" | dedup event.type`)
 - [ ] Metric field `consumed_units` confirmed against a real AI Units billing event
 - [ ] Quota threshold (default: 1,000) reviewed and adjusted for the target customer
-- [ ] IAM deny policy created and attached to "AI Quota Exceeded" group (`DENY ai:operator:execute`)
+- [ ] IAM deny policy created and attached to "AI Quota Exceeded" group (consult Dynatrace IAM docs for the appropriate permission to deny)
 - [ ] OAuth client created with an Account Manager user as subject, scopes: `account-idm-read`, `account-idm-write`
 - [ ] Credential vault entry `Quota check OAuth` created (Username = Account UUID, Password = full OAuth client secret, Scope = AppEngine)
 - [ ] Workflow Actor has Authorization Settings configured

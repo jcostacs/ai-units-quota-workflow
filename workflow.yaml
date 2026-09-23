@@ -32,8 +32,8 @@ workflow:
       name: check_for_ai_quota
       input:
         query: "fetch dt.system.events, from: -1d@d\n| filter event.kind == \"\
-          BILLING_USAGE_EVENT\"\n| filter event.type == \"AI Units\"\n| filter event.version\
-          \ == \"1.0\"\n| dedup event.id\n| summarize {\n    ai_units = sum(consumed_units)\n\
+          BILLING_USAGE_EVENT\"\n| filter event.type == \"AI Units\"\n| dedup event.id\n| summarize {\n    ai_units\
+          \ = sum(usage.quantity.billable)\n\
           \  }, by:{user.email}\n| filter ai_units > 1000\n| filterOut user.email\
           \ in [\n  fetch bizevents, from: -1d@d\n  | filter event.type==\"ai.units.quota.exceeded\"\
           \n  | fields user.email\n]\n| fields email = user.email"

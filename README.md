@@ -61,7 +61,7 @@ fetch dt.system.events
 
 Look for:
 - The exact `event.type` string for AI Units (`"AI Units"`)
-- The metric field name (the workflow assumes `consumed_units` — adjust if different)
+- The metric field name (the workflow uses `usage.quantity.billable` — verify this is present in your events)
 - Whether `user.email` is present (required for per-user quota enforcement)
 
 Update the DQL query in the `check_for_ai_quota` task accordingly before importing.
