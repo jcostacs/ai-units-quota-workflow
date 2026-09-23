@@ -95,7 +95,7 @@ All changes were reverted before committing the production `workflow.yaml`.
 For the colleague deploying to production, verify the following before publishing:
 
 - [ ] `event.type == "AI Units"` confirmed against production billing events (`fetch dt.system.events | filter event.kind == "BILLING_USAGE_EVENT" | dedup event.type`)
-- [ ] Metric field `consumed_units` confirmed against a real AI Units billing event
+- [ ] Metric field `usage.quantity.billable` confirmed against a real AI Units billing event (see §Billing Event Schema Validation below)
 - [ ] Quota threshold (default: 1,000) reviewed and adjusted for the target customer
 - [ ] IAM deny policy created and attached to "AI Quota Exceeded" group (consult Dynatrace IAM docs for the appropriate permission to deny)
 - [ ] OAuth client created with an Account Manager user as subject, scopes: `account-idm-read`, `account-idm-write`
@@ -104,3 +104,31 @@ For the colleague deploying to production, verify the following before publishin
 - [ ] `sso.dynatrace.com` and `api.dynatrace.com` are in the environment's outbound allowlist
 - [ ] `send_email_about_ai_quota` tested with a real email recipient before go-live
 - [ ] `quota_reset_at_midnight` validated after first production run at 00:00 UTC
+
+---
+
+## Billing Event Schema Validation
+
+A real `AI Units` billing event was observed in an internal Dynatrace environment on 2026-09-23. The event confirmed the following field schema:
+
+| Field | Value observed | Workflow uses |
+|---|---|---|
+| `event.kind` | `BILLING_USAGE_EVENT` | `filter event.kind == "BILLING_USAGE_EVENT"` ✓ |
+| `event.type` | `AI Units` | `filter event.type == "AI Units"` ✓ |
+| `usage.quantity.billable` | `30.00` (double) | `sum(usage.quantity.billable)` ✓ |
+| `usage.unit` | `Units` | — (informational) |
+| `user.email` | present (e.g. `user@dynatrace.com`) | `by:{user.email}` / `fields email = user.email` ✓ |
+| `event.id` | UUID | `dedup event.id` ✓ |
+| `event.version` | `1.0.0` | *(filter removed — correct, "1.0.0" ≠ "1.0")* ✓ |
+| `event.provider` | `LIMA_USAGE_STREAM` | — (not filtered) |
+| `dt.openpipeline.source` | `system_events` | fetched via `fetch dt.system.events` ✓ |
+
+**Key findings:**
+
+- `usage.quantity.billable` is confirmed as the correct metric field. The field `consumed_units` does not exist in real events.
+- `event.version` is `"1.0.0"`, not `"1.0"`. Removing the `event.version == "1.0"` filter (present in the original log quota blueprint) was correct — keeping it would have caused the query to silently return no results.
+- `user.email` is always present (1,463/1,463 events checked had a non-null value). Per-user quota enforcement is safe to rely on.
+- `usage.start` and `usage.end` are both null in practice. The event `timestamp` is the usage time, confirming that `from: -1d@d` (since midnight UTC) is the correct timeframe for a daily quota.
+- `caller.type` takes three observed values: `internal` (workflow/operator actions — the dominant type), `api` (direct API calls), and `mcp` (MCP tool calls). All share `tool.category: ai`. The workflow counts all caller types toward the quota. Customers who want to restrict the quota to specific interaction types (e.g. only `api` calls) can add `| filter caller.type == "api"` to both DQL tasks.
+- Service accounts appear with a UUID-based email format (`<uuid>@service.sso.dynatrace.com`). The quota applies to these identities as well. Customers who want to exempt service accounts can add `| filterOut matchesPhrase(user.email, "@service.sso.dynatrace.com")` to both DQL tasks.
+- Real-world consumption over 7 days in an active internal tenant ranged from ~51 to ~38,250 units per user. Only one user exceeded 1,000 units in a single day, validating that 1,000 units/day is a reasonable default threshold for most customer environments..

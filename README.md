@@ -150,6 +150,8 @@ The workflow makes outbound HTTPS calls to `sso.dynatrace.com` (OAuth token) and
 | User lockout email subject / body | `send_email_about_ai_quota` task → `subject` / `content` fields |
 | Warning email subject / body | `send_quota_warning_email` task → `subject` / `content` fields |
 | Restrict to specific users/teams | Add a `filter` on `user.email` in both DQL tasks |
+| Restrict to a specific caller type | Add `\| filter caller.type == "api"` (or `"mcp"` / `"internal"`) in both DQL tasks. Observed values: `internal` (workflow/operator actions), `api` (direct API), `mcp` (MCP tool calls) |
+| Exempt service accounts | Add `\| filterOut matchesPhrase(user.email, "@service.sso.dynatrace.com")` in both DQL tasks. Service accounts appear with a UUID-based email of this form |
 | Change to weekly quota | Adjust the `from:` timeframe in both DQL tasks to `-7d@d` and update the reset task |
 
 ---
