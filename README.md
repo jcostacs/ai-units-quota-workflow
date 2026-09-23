@@ -12,12 +12,17 @@ The workflow runs every minute and executes two independent chains:
 
 ```
 Every minute
-    └── check_for_ai_quota (DQL)
-            ├── lock_out_users (JS)     → adds user to "AI Quota Exceeded" group + logs business event
-            └── send_email_about_ai_quota (Email) → notifies affected user
+    ├── check_for_ai_quota (DQL)            → users at 100%+ of quota, not yet locked out today
+    │       ├── lock_out_users (JS)         → adds to "AI Quota Exceeded" group + logs bizevents
+    │       │       └── send_admin_lockout_summary (Email) → admin summary of locked-out users
+    │       └── send_email_about_ai_quota (Email) → notifies each locked-out user
+    │
+    └── check_for_quota_warning (DQL)       → users at 80–99% of quota, not yet warned today
+            ├── send_quota_warning_email (Email) → warns each approaching-quota user
+            └── log_quota_warning_events (JS)    → logs bizevents to prevent duplicate warnings
 
 At 00:00 UTC
-    └── quota_reset_at_midnight (JS)    → removes all users from "AI Quota Exceeded" group
+    └── quota_reset_at_midnight (JS)        → removes all users from "AI Quota Exceeded" group
 ```
 
 **Enforcement flow:**
@@ -138,11 +143,31 @@ The workflow makes outbound HTTPS calls to `sso.dynatrace.com` (OAuth token) and
 
 | What to change | Where |
 |---|---|
-| AI Units threshold (default: 1,000) | `check_for_ai_quota` task → DQL `filter ai_units > 1000` |
+| AI Units threshold (default: 1,000) | `check_for_ai_quota` task → `filter ai_units > 1000` **and** `check_for_quota_warning` task → `filter ai_units <= 1000` and `filter ai_units > 800` (keep both in sync) |
+| Warning threshold (default: 80%) | `check_for_quota_warning` task → `filter ai_units > 800` |
+| Admin notification email | `send_admin_lockout_summary` task → `to` field (replace `admin@example.com`) |
 | Quota reset time (default: 00:00 UTC) | `quota_reset_at_midnight` task → condition `"00:00"` |
-| Email subject / body | `send_email_about_ai_quota` task → `subject` / `content` fields |
-| Restrict to specific users/teams | Add a `filter` on `user.email` in the DQL query |
-| Change to weekly quota | Adjust the `from:` timeframe in the DQL to `-7d@d` and update the reset task |
+| User lockout email subject / body | `send_email_about_ai_quota` task → `subject` / `content` fields |
+| Warning email subject / body | `send_quota_warning_email` task → `subject` / `content` fields |
+| Restrict to specific users/teams | Add a `filter` on `user.email` in both DQL tasks |
+| Change to weekly quota | Adjust the `from:` timeframe in both DQL tasks to `-7d@d` and update the reset task |
+
+---
+
+## Cost Considerations
+
+This workflow is configured to run **every minute** (1,440 executions/day), which consumes Dynatrace Automation execution units on each run. Since AI Units billing data arrives with up to a **24-hour delay**, running every minute provides no enforcement advantage over a much lower frequency — the underlying data does not change within a single day.
+
+**Recommendation:** Increase the schedule interval to reduce execution costs with no meaningful impact on enforcement behaviour:
+
+| Interval | Executions/day | Notes |
+|---|---|---|
+| Every 1 minute | 1,440 | Default — no benefit over lower frequencies given billing data delay |
+| Every 15 minutes | 96 | Good balance for near-real-time notification delivery |
+| Every 30 minutes | 48 | Recommended for most deployments |
+| Every 60 minutes | 24 | Sufficient given the 24-hour billing data lag |
+
+To change the interval, edit the workflow trigger in **Automations → [workflow] → Settings → Schedule → Interval**.
 
 ---
 
