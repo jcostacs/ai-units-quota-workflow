@@ -97,6 +97,8 @@ In **Account Management → OAuth Clients**, create a client with:
 - **Subject**: an Account Manager user (not the service user)
 - **Scopes**: `account-idm-read account-idm-write`
 
+> **Important:** The subject user email must exactly match the email shown in Account Management — this may differ from the address you log in with (e.g. it may include a tenant suffix). Check **Account Management → Users** to confirm the exact email address before creating the client. If the subject email doesn't match a valid active user, the OAuth client will show as "Not available" and token requests will fail.
+
 Note the **Client Secret** — it will be used in the next step.
 
 ### 5. Store Credentials in the Credential Vault
@@ -113,12 +115,22 @@ In your Dynatrace environment, go to **Settings → Credential Vault** and creat
 
 The name must be exactly `Quota check OAuth`.
 
-### 6. Import the Workflow
+### 6. Configure the Outbound Allowlist
+
+The workflow makes outbound HTTPS calls to `sso.dynatrace.com` (OAuth token) and `api.dynatrace.com` (Account Management API). Verify both hosts are permitted:
+
+1. In your Dynatrace environment, go to **Settings → Preferences → Allowlist for outbound connections**.
+2. Confirm `sso.dynatrace.com` and `api.dynatrace.com` are present. If not, add them.
+
+### 7. Import the Workflow
 
 1. In your Dynatrace environment, go to **Automations**.
 2. Click **Import workflow** and upload `workflow.yaml`.
-3. Set the workflow **Actor** to the service user created in Step 3.
-4. Save and run the workflow once manually to validate all steps.
+3. Open the workflow settings and set the **Actor** to the service user created in Step 3.
+4. Go to **Settings → Automations → Authorization settings** and confirm the Actor user has an entry there. If not, add the user and grant the required permissions — without this, the workflow runtime cannot act on the user's behalf and credential vault access will fail.
+5. Save and run the workflow once manually to validate all steps.
+
+> **Note on DQL customization:** If you modify the `check_for_ai_quota` DQL query, use only single-line `//` comments within pipeline steps. Block comments (`/* ... */`) are not supported by the Grail DQL parser and will cause a parse error.
 
 ---
 
