@@ -30,7 +30,7 @@ At 00:00 UTC
 1. `check_for_ai_quota` queries `dt.system.events` billing data to identify users whose AI Units consumption in the past day exceeds the configured threshold (default: 1,000 units).
 2. Users already notified today (tracked via a business event) are excluded, preventing duplicate enforcement.
 3. Over-quota users are added to the **AI Quota Exceeded** IAM group, which has a deny policy attached to restrict AI feature access.
-4. Each affected user receives an email notification.
+4. Each affected user receives an email showing their actual unit count. An admin summary email lists all newly locked-out users and their unit totals.
 5. At midnight UTC, all users are removed from the group, resetting their access for the new day.
 
 ---
@@ -44,32 +44,27 @@ At 00:00 UTC
 
 ---
 
-## Before You Deploy: Verify Your Billing Event Schema
+## Event Schema Reference
 
-AI Units billing events may differ between tenants and product tiers. **Before importing the workflow**, run the following DQL queries in a Dynatrace Notebook to confirm the correct field names for your environment:
+The following fields are confirmed from real `AI Units` billing events observed in a Dynatrace SaaS environment. The workflow is pre-configured for these field names and values — no schema verification is required before deploying.
 
-**Step 1 — Find the right event type:**
-```dql
-fetch dt.system.events
-| filter event.kind == "BILLING_USAGE_EVENT"
-| dedup event.type
-| fields event.type
-```
+| Field | Confirmed value | Notes |
+|---|---|---|
+| `event.kind` | `BILLING_USAGE_EVENT` | Filters the fetch to billing events only |
+| `event.type` | `AI Units` | Exact string — case-sensitive |
+| `usage.quantity.billable` | double (e.g. `30.0`) | Aggregated with `sum()` for the daily total; `consumed_units` does not exist |
+| `user.email` | always present | Confirmed on 1,463/1,463 events sampled; safe to rely on for per-user enforcement |
+| `event.id` | UUID string | Used with `dedup event.id` to prevent double-counting |
+| `event.version` | `1.0.0` | Not filtered — a `"1.0"` filter would silently match nothing |
+| `usage.start` / `usage.end` | null | The event `timestamp` is the usage time; `from: -1d@d` is the correct daily window |
 
-**Step 2 — Inspect the AI Units event fields:**
-```dql
-fetch dt.system.events
-| filter event.kind == "BILLING_USAGE_EVENT"
-| filter event.type == "AI Units"
-| limit 5
-```
+**Caller context** (available for optional filtering — see Customization):
 
-Look for:
-- The exact `event.type` string for AI Units (`"AI Units"`)
-- The metric field name (the workflow uses `usage.quantity.billable` — verify this is present in your events)
-- Whether `user.email` is present (required for per-user quota enforcement)
-
-Update the DQL query in the `check_for_ai_quota` task accordingly before importing.
+| Field | Observed values |
+|---|---|
+| `caller.type` | `internal` (workflow/operator actions), `api` (direct API calls), `mcp` (MCP tool calls) |
+| `tool` | `operator`, `chat`, `nl2dql` |
+| `tool.category` | `ai` |
 
 ---
 
@@ -143,8 +138,8 @@ The workflow makes outbound HTTPS calls to `sso.dynatrace.com` (OAuth token) and
 
 | What to change | Where |
 |---|---|
-| AI Units threshold (default: 1,000) | `check_for_ai_quota` task → `filter ai_units > 1000` **and** `check_for_quota_warning` task → `filter ai_units <= 1000` and `filter ai_units > 800` (keep both in sync) |
-| Warning threshold (default: 80%) | `check_for_quota_warning` task → `filter ai_units > 800` |
+| AI Units threshold (default: 1,000) | `check_for_ai_quota` task → `filter ai_units > 1000` **and** `check_for_quota_warning` task → `filter ai_units <= 1000` and `filter ai_units > 800`. Also update the threshold value in the warning email template. Keep all three in sync. |
+| Warning threshold (default: 80%) | `check_for_quota_warning` task → `filter ai_units > 800`. Formula: `warning threshold = quota × 0.8`. If you change the quota, update this value proportionally (e.g. quota 2,000 → warning 1,600). |
 | Admin notification email | `send_admin_lockout_summary` task → `to` field (replace `admin@example.com`) |
 | Quota reset time (default: 00:00 UTC) | `quota_reset_at_midnight` task → condition `"00:00"` |
 | User lockout email subject / body | `send_email_about_ai_quota` task → `subject` / `content` fields |
@@ -179,12 +174,15 @@ To change the interval, edit the workflow trigger in **Automations → [workflow
 - **Per-user attribution**: This workflow requires AI Units billing events to include a `user.email` field. If your environment reports AI Units at the environment or application level only, the quota cannot be enforced per user.
 - **Duplicate business events**: If the workflow runs multiple times in a minute window when a user is first detected, a small number of duplicate `ai.units.quota.exceeded` business events may be written. This does not affect enforcement.
 - **Manual override**: Administrators can unblock a user at any time by removing them from the **AI Quota Exceeded** group directly in Account Management.
+- **Service accounts**: AI Units consumed by service accounts appear with a UUID-based email (`<uuid>@service.sso.dynatrace.com`). The workflow will attempt to lock these identities out via the IAM API; calls that fail are silently skipped (handled by `Promise.allSettled`), but the service account will be re-evaluated on every workflow run. To exempt service accounts entirely, add `| filterOut matchesPhrase(user.email, "@service.sso.dynatrace.com")` to both DQL tasks.
+- **Calendar-day window, not rolling 24 hours**: The quota window is midnight-to-midnight UTC (`from: -1d@d`). A user who consumes 900 units at 11:55 PM and 200 more at 12:05 AM the next day will not be caught by the quota on either day. This is a deliberate simplification that keeps the reset logic straightforward.
 
 ---
 
 ## Related Resources
 
 - [Log Query Quota Workflow](https://github.com/Dynatrace/community-examples/tree/main/cost-intelligence-blueprints/set-quotas-with-workflow) — the original blueprint this is adapted from
+- [TESTING.md](TESTING.md) — internal validation report: full billing event schema, test results, and known environment-specific gotchas
 - [Dynatrace Account Management API](https://developer.dynatrace.com/reference/api-reference/account-management/)
 - [Dynatrace Automations documentation](https://developer.dynatrace.com/develop/automations/)
 - [DQL billing events reference](https://developer.dynatrace.com/reference/system-events/)

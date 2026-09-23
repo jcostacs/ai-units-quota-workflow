@@ -46,7 +46,7 @@ workflow:
             | filter event.type=="ai.units.quota.exceeded"
             | fields user.email
           ]
-          | fields email = user.email
+          | fields email = user.email, ai_units
       action: dynatrace.automations:execute-dql-query
       position:
         x: 0
@@ -59,11 +59,14 @@ workflow:
         - mappings:
             email:
               type: string
+            ai_units:
+              type: double
           indexRange:
           - 0
           - 1
         records:
         - email: test@test.com
+          ai_units: 1250
         metadata:
           grail:
             query: 'fetch dt.system.events | filter event.kind == "BILLING_USAGE_EVENT"
@@ -197,7 +200,9 @@ workflow:
           export default async function({ executionId }) {
             const ex = await execution(executionId);
             const checkResult = await ex.result('check_for_ai_quota');
-            const emails = checkResult.records.map((item) => item.email);
+            const records = checkResult.records;
+            const emails = records.map((item) => item.email);
+            const unitsMap = Object.fromEntries(records.map((item) => [item.email, item.ai_units]));
 
             const credentialsList = await credentialVaultClient.listCredentials({ name: 'Quota check OAuth' });
             if (!credentialsList || credentialsList.totalCount == 0) {
@@ -226,7 +231,7 @@ workflow:
 
             const bizResults = await Promise.allSettled(
               lockedUsers.map(email => businessEventsClient.ingest({
-                body: { "event.type": "ai.units.quota.exceeded", "user.email": email },
+                body: { "event.type": "ai.units.quota.exceeded", "user.email": email, "ai_units": unitsMap[email] },
                 type: 'application/json; charset=utf-8',
               }))
             );
@@ -236,7 +241,8 @@ workflow:
               console.log("Failed to ingest " + bizFailures.length + " business event(s). Check storage:events:write permission.");
             }
 
-            return { lockedUsers };
+            const lockedUsersWithUnits = lockedUsers.map(email => ({ email, ai_units: unitsMap[email] }));
+            return { lockedUsers, lockedUsersWithUnits };
           }
       action: dynatrace.automations:run-javascript
       position:
@@ -259,11 +265,13 @@ workflow:
         - '{{ _.item.email }}'
         bcc: []
         taskId: '{{ task().id }}'
-        content: "Dear {{ _.item.email }},\n\nYou have exceeded your daily quota\
-          \ for AI Units in Dynatrace.\n\nIf you need to continue using AI-powered\
-          \ features, please contact your Dynatrace administrator to be removed from\
-          \ the \"AI Quota Exceeded\" group.\n\nAlternatively, your quota will be\
-          \ automatically reset at midnight UTC."
+        content: "Dear {{ _.item.email }},\n\nYou have exceeded your daily AI Units\
+          \ quota in Dynatrace. Your usage today reached {{ _.item.ai_units | int\
+          \ }} units (daily limit: 1,000 units).\n\nAccess to AI-powered features\
+          \ has been temporarily restricted. If you need immediate access, please\
+          \ contact your Dynatrace administrator to be removed from the \"AI Quota\
+          \ Exceeded\" group.\n\nYour quota will be automatically reset at midnight\
+          \ UTC."
         subject: Dynatrace AI Units Quota Exceeded
         executionId: '{{ execution().id }}'
         environmentUrl: '{{ environment().url }}'
@@ -293,9 +301,10 @@ workflow:
         subject: 'Dynatrace AI Units: {{ result("lock_out_users").lockedUsers | length
           }} user(s) locked out'
         content: "The following users have exceeded their daily AI Units quota and\
-          \ have been restricted from AI-powered features:\n\n{% for email in result(\"\
-          lock_out_users\").lockedUsers %}- {{ email }}\n{% endfor %}\nAccess will\
-          \ be automatically restored at midnight UTC."
+          \ have been restricted from AI-powered features:\n\n{% for item in result(\"\
+          lock_out_users\").lockedUsersWithUnits %}- {{ item.email }} ({{ item.ai_units\
+          \ | int }} units)\n{% endfor %}\nAccess will be automatically restored at\
+          \ midnight UTC."
         executionId: '{{ execution().id }}'
         environmentUrl: '{{ environment().url }}'
       action: dynatrace.email:send-email
@@ -321,10 +330,11 @@ workflow:
         bcc: []
         taskId: '{{ task().id }}'
         content: "Dear {{ _.item.email }},\n\nYou are approaching your daily AI\
-          \ Units quota in Dynatrace. Your current usage is above 80% of your daily\
-          \ limit.\n\nTo avoid being locked out of AI-powered features, please reduce\
-          \ your usage for the remainder of the day.\n\nYour quota will reset automatically\
-          \ at midnight UTC."
+          \ Units quota in Dynatrace. Your current usage is {{ _.item.ai_units | int\
+          \ }} units out of 1,000 ({{ (_.item.ai_units / 1000 * 100) | round(1) }}%\
+          \ of your daily limit).\n\nTo avoid being locked out of AI-powered features,\
+          \ please reduce your usage for the remainder of the day.\n\nYour quota will\
+          \ reset automatically at midnight UTC."
         subject: Dynatrace AI Units - Approaching Daily Quota
         executionId: '{{ execution().id }}'
         environmentUrl: '{{ environment().url }}'
