@@ -14,7 +14,7 @@ End-to-end validation of the workflow was completed successfully in a hardening 
 
 ## Test Approach
 
-Since AI Units billing events are not yet available (feature is pre-GA), the DQL task was patched to inject a test user directly, and the lockout JavaScript was modified to hardcode an email address. This allowed full validation of the enforcement chain without real billing data.
+The hardening environment used for enforcement testing did not have AI Units billing data, so the DQL task was patched to inject a test user directly and the lockout JavaScript was modified to hardcode an email address. This allowed full validation of the enforcement chain. Real billing event schema was subsequently validated against an internal dev tenant — see §Billing Event Schema Validation below.
 
 **Temporary changes made for testing (do not carry into production):**
 
@@ -128,7 +128,7 @@ A real `AI Units` billing event was observed in an internal Dynatrace environmen
 - `usage.quantity.billable` is confirmed as the correct metric field. The field `consumed_units` does not exist in real events.
 - `event.version` is `"1.0.0"`, not `"1.0"`. Removing the `event.version == "1.0"` filter (present in the original log quota blueprint) was correct — keeping it would have caused the query to silently return no results.
 - `user.email` is always present (1,463/1,463 events checked had a non-null value). Per-user quota enforcement is safe to rely on.
-- `usage.start` and `usage.end` are both null in practice. The event `timestamp` is the usage time, confirming that `from: -1d@d` (since midnight UTC) is the correct timeframe for a daily quota.
+- `usage.start` and `usage.end` are both null in practice. The event `timestamp` is the usage time, confirming that `from: -0d@d` (today since midnight UTC) is the correct timeframe for a daily quota.
 - `caller.type` takes three observed values: `internal` (workflow/operator actions — the dominant type), `api` (direct API calls), and `mcp` (MCP tool calls). All share `tool.category: ai`. The workflow counts all caller types toward the quota. Customers who want to restrict the quota to specific interaction types (e.g. only `api` calls) can add `| filter caller.type == "api"` to both DQL tasks.
 - Service accounts appear with a UUID-based email format (`<uuid>@service.sso.dynatrace.com`). The quota applies to these identities as well. Customers who want to exempt service accounts can add `| filterOut matchesPhrase(user.email, "@service.sso.dynatrace.com")` to both DQL tasks.
 - Real-world consumption over 7 days in an active internal tenant ranged from ~51 to ~38,250 units per user. Only one user exceeded 1,000 units in a single day, validating that 1,000 units/day is a reasonable default threshold for most customer environments..

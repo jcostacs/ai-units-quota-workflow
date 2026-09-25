@@ -33,7 +33,7 @@ workflow:
       name: check_for_ai_quota
       input:
         query: |
-          fetch dt.system.events, from: -1d@d
+          fetch dt.system.events, from: -0d@d
           | filter event.kind == "BILLING_USAGE_EVENT"
           | filter event.type == "AI Units"
           | dedup event.id
@@ -42,7 +42,7 @@ workflow:
             }, by:{user.email}
           | filter ai_units > 1000
           | filterOut user.email in [
-            fetch bizevents, from: -1d@d
+            fetch bizevents, from: -0d@d
             | filter event.type=="ai.units.quota.exceeded"
             | fields user.email
           ]
@@ -90,7 +90,7 @@ workflow:
       name: check_for_quota_warning
       input:
         query: |
-          fetch dt.system.events, from: -1d@d
+          fetch dt.system.events, from: -0d@d
           | filter event.kind == "BILLING_USAGE_EVENT"
           | filter event.type == "AI Units"
           | dedup event.id
@@ -100,12 +100,12 @@ workflow:
           | filter ai_units > 800
           | filter ai_units <= 1000
           | filterOut user.email in [
-            fetch bizevents, from: -1d@d
+            fetch bizevents, from: -0d@d
             | filter event.type=="ai.units.quota.warning"
             | fields user.email
           ]
           | filterOut user.email in [
-            fetch bizevents, from: -1d@d
+            fetch bizevents, from: -0d@d
             | filter event.type=="ai.units.quota.exceeded"
             | fields user.email
           ]

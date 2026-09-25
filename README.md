@@ -175,7 +175,7 @@ To change the interval, edit the workflow trigger in **Automations → [workflow
 - **Duplicate business events**: If the workflow runs multiple times in a minute window when a user is first detected, a small number of duplicate `ai.units.quota.exceeded` business events may be written. This does not affect enforcement.
 - **Manual override**: Administrators can unblock a user at any time by removing them from the **AI Quota Exceeded** group directly in Account Management.
 - **Service accounts**: AI Units consumed by service accounts appear with a UUID-based email (`<uuid>@service.sso.dynatrace.com`). The workflow will attempt to lock these identities out via the IAM API; calls that fail are silently skipped (handled by `Promise.allSettled`), but the service account will be re-evaluated on every workflow run. To exempt service accounts entirely, add `| filterOut matchesPhrase(user.email, "@service.sso.dynatrace.com")` to both DQL tasks.
-- **Calendar-day window, not rolling 24 hours**: The quota window is midnight-to-midnight UTC (`from: -1d@d`). A user who consumes 900 units at 11:55 PM and 200 more at 12:05 AM the next day will not be caught by the quota on either day. This is a deliberate simplification that keeps the reset logic straightforward.
+- **Calendar-day window, not rolling 24 hours**: The quota window is today's calendar day in UTC (`from: -0d@d`, midnight→now). A user who consumes 900 units at 11:55 PM and 200 more at 12:05 AM the next day will not be caught by the quota on either day. This is a deliberate simplification that keeps the reset logic straightforward.
 
 ---
 
