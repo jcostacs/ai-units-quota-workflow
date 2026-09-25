@@ -56,7 +56,7 @@ The following fields are confirmed from real `AI Units` billing events observed 
 | `user.email` | always present | Confirmed on 1,463/1,463 events sampled; safe to rely on for per-user enforcement |
 | `event.id` | UUID string | Used with `dedup event.id` to prevent double-counting |
 | `event.version` | `1.0.0` | Not filtered — a `"1.0"` filter would silently match nothing |
-| `usage.start` / `usage.end` | null | The event `timestamp` is the usage time; `from: -1d@d` is the correct daily window |
+| `usage.start` / `usage.end` | null | The event `timestamp` is the usage time; `from: -0d@d` is the correct daily window |
 
 **Caller context** (available for optional filtering — see Customization):
 
